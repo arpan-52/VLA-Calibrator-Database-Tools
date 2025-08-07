@@ -15,7 +15,7 @@ The NRAO's VLA calibrator database is available as web tables, which are not ide
 - **Web scraping**: Downloads calibrator data from the NRAO website  
 - **XML conversion**: Converts web tables into structured XML  
 - **Query tool**: CLI interface to search the XML database  
-- **Pipeline friendly**: XML format is compatible with CASA, AIPS, etc.
+- **Pipeline friendly**: XML format is user-friendly and can be queried.
 
 ---
 
@@ -23,7 +23,7 @@ The NRAO's VLA calibrator database is available as web tables, which are not ide
 
 - `scrapper.py` – Downloads and converts calibrator data to XML  
 - `query.py` – CLI tool to query the XML database  
-- `vla_calibrators_from_web_fixed.xml` – The generated XML file  
+- `vla_calibrators.xml` – The generated XML file  
 
 ---
 
