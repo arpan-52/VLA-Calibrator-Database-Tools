@@ -108,14 +108,6 @@ B	11 km	~0.13″
 C	3.4 km	~0.4″
 D	1 km	~1.3″
 ```
-## Applications
-Pipeline Integration
-
-    CASA calibrator selection tools
-
-    Custom Python data pipelines
-
-    Observational planning tools
 
 ## Typical Python Workflow
 ```bash
@@ -131,3 +123,8 @@ for calib in root.findall('calibrator'):
             flux = band.findtext('FLUX_JY')
             print(f"{name}: {flux} Jy")
 ```
+
+## Acknowldegments
+
+Feel free to use it on your projects and pipelines, if it makes your life slightly easier, acknowledge this GitHub repository.
+
