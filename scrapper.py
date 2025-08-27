@@ -22,74 +22,102 @@ def indent(elem, level=0):
             elem.tail = i
 
 def clean_line(s):
-    """ Clean markdown links, parentheses, stray URLs from a str line. """
+    """Clean markdown links, parentheses, stray URLs from a str line."""
     s = re.sub(r"\[([^\]]*)\]\([^\)]*\)", r"\1", s)
     s = re.sub(r"\([^\s)]+://[^\s)]+\)", '', s)  # Remove URLs in ()
     s = re.sub(r"http[s]?://\S+", "", s)
     return s.strip()
 
-def parse_band_line_fixed(line):
+def parse_band_line_robust(line):
     """
-    Parse a band line using fixed-width column approach.
-    Expected format based on VLA documentation:
-    BAND    CODE A B C D    FLUX(Jy)    UVMIN(kL)  UVMAX(kL)
-     90cm    P  S S S X          7            1
-     20cm    L  X P P P       2.40                  50
+    Robust parser for VLA band lines using position-based UV parsing.
+    
+    Uses actual column positions from header to correctly assign UVMIN/UVMAX values.
+    UVMIN starts at position 35, UVMAX starts at position 46.
     """
     # Remove any trailing comments like "visplot"
-    line = re.sub(r'\s+visplot\s*$', '', line)
+    original_line = line
+    line_clean = re.sub(r'\s+visplot\s*$', '', line).strip()
     
-    # Define approximate column positions based on the header format
-    # These positions are based on the typical VLA calibrator format
+    print(f"    Parsing band line: '{line_clean}'")
+    
     try:
-        # Extract band (first 8 characters, right-padded)
-        band = line[0:8].strip()
+        # Split the line into parts for basic parsing
+        parts = line_clean.split()
+        if len(parts) < 7:
+            print(f"    Not enough parts: {len(parts)}")
+            return None
+            
+        print(f"    Split parts: {parts}")
         
-        # Extract band code (next 4 characters)
-        band_code = line[8:12].strip()
+        # Extract basic fields using split method
+        band = parts[0]
         
-        # Extract A, B, C, D codes (each roughly 2 characters)
-        a_code = line[12:14].strip()
-        b_code = line[14:16].strip() 
-        c_code = line[16:18].strip()
-        d_code = line[18:20].strip()
+        # Find flux position
+        flux_idx = -1
+        for i, part in enumerate(parts):
+            if re.match(r'^\d*\.?\d+$', part) and float(part) > 0.05:
+                flux_idx = i
+                break
         
-        # The rest of the line contains flux and UV ranges
-        remainder = line[20:].strip()
+        if flux_idx == -1:
+            print(f"    Could not find flux value")
+            return None
+            
+        flux = parts[flux_idx]
         
-        # Split remainder by whitespace to get numeric values
-        parts = remainder.split()
+        # Extract codes (everything between band and flux)
+        codes = parts[1:flux_idx]
+        if len(codes) < 5:
+            print(f"    Not enough codes: {len(codes)}")
+            return None
+            
+        band_code = codes[0]
+        a_code = codes[1]
+        b_code = codes[2] 
+        c_code = codes[3]
+        d_code = codes[4]
         
-        # First number should be flux
-        flux = parts[0] if len(parts) > 0 and parts[0].replace('.', '').isdigit() else ""
+        print(f"    Band: {band}, Code: {band_code}, Antenna codes: [{a_code},{b_code},{c_code},{d_code}], Flux: {flux}")
         
-        # For UV ranges, we need to look at the original line positioning
-        # Find where numbers appear after the flux value
+        # Position-based UV parsing using header-derived column positions
+        uvmin_col_pos = 35  # UVMIN column starts at position 35
+        uvmax_col_pos = 46  # UVMAX column starts at position 46
+        
         uvmin = ""
         uvmax = ""
         
-        if len(parts) > 1:
-            # Look at the actual character positions in the original line
-            # to determine if numbers are in UVMIN or UVMAX columns
-            
-            for i, part in enumerate(parts[1:], 1):  # Skip flux (parts[0])
-                if part.replace('.', '').isdigit():
-                    # Find the position of this number in the original line
-                    num_pos = line.find(part, 20)  # Start search after column 20
-                    
-                    # Based on typical VLA format:
-                    # UVMIN column is around position 40-50
-                    # UVMAX column is around position 55-65
-                    if 35 <= num_pos <= 50:
-                        uvmin = part
-                    elif num_pos > 50:
-                        uvmax = part
-                    elif not uvmin:  # If no clear positioning, assume first number is UVMIN
-                        uvmin = part
-                    elif not uvmax:  # Second number is UVMAX
-                        uvmax = part
+        # Find all numeric values after the flux in the original line
+        uv_candidates = []
+        for i in range(flux_idx + 1, len(parts)):
+            if re.match(r'^\d*\.?\d+$', parts[i]):
+                # Find the position of this number in the original line
+                search_start = original_line.find(flux) + len(flux)
+                pos = original_line.find(parts[i], search_start)
+                uv_candidates.append((parts[i], pos))
+                print(f"      UV candidate: '{parts[i]}' at position {pos}")
         
-        return {
+        # Assign UV values based on column positions
+        # Check UVMAX first since it comes after UVMIN
+        for uv_value, pos in uv_candidates:
+            if pos >= uvmax_col_pos:  # Check UVMAX first
+                if not uvmax:
+                    uvmax = uv_value
+                    print(f"      Assigned UVMAX: '{uv_value}' (pos {pos} >= {uvmax_col_pos})")
+            elif pos >= uvmin_col_pos:  # Then check UVMIN
+                if not uvmin:
+                    uvmin = uv_value  
+                    print(f"      Assigned UVMIN: '{uv_value}' (pos {pos} >= {uvmin_col_pos})")
+            else:
+                print(f"      UV value '{uv_value}' at pos {pos} is before columns - ignoring")
+        
+        # Fallback logic
+        if not uvmin and not uvmax and uv_candidates:
+            # Single value - assign to UVMAX based on analysis
+            uvmax = uv_candidates[0][0]
+            print(f"      FALLBACK: Single UV '{uvmax}' assigned to UVMAX")
+        
+        result = {
             "BAND": band,
             "BAND_CODE": band_code,
             "A_CODE": a_code,
@@ -101,8 +129,11 @@ def parse_band_line_fixed(line):
             "UVMAX_KLAMBDA": uvmax,
         }
         
+        print(f"    Final result: UVMIN='{uvmin}', UVMAX='{uvmax}'")
+        return result
+        
     except Exception as e:
-        print(f"Error parsing band line '{line}': {e}")
+        print(f"Error parsing band line '{original_line}': {e}")
         return None
 
 def parse_cal_block(block_lines):
@@ -117,7 +148,7 @@ def parse_cal_block(block_lines):
         r"^(?:\[(?P<iauname>\S+)\]|(?P<iauname2>\S+))\s+B1950\s+(?P<pc>\w)\s+(?P<ra>\S+)\s+(?P<dec>\S+)"
     )
     
-    # Simple pattern to identify band lines - just look for the band format
+    # Pattern to identify band lines - look for band format at start of line
     band_line_pat = re.compile(r'^\s*([0-9.]+(?:cm|mm))\s+([A-Z])\s+')
 
     lines = [clean_line(l) for l in block_lines if l.strip() and 
@@ -160,12 +191,13 @@ def parse_cal_block(block_lines):
             print(f"    Found B1950 header: {iau}")
             continue
             
-        # Try band data using the new fixed-width approach
+        # Try band data - use robust parsing
         if band_line_pat.match(s):
-            band_data = parse_band_line_fixed(s)
+            band_data = parse_band_line_robust(s)
+                
             if band_data:
                 bands.append(band_data)
-                print(f"    Added band: {band_data['BAND']} with UVMIN={band_data['UVMIN_KLAMBDA']}, UVMAX={band_data['UVMAX_KLAMBDA']}")
+                print(f"    Added band: {band_data['BAND']} code={band_data['BAND_CODE']} with antenna codes [{band_data['A_CODE']},{band_data['B_CODE']},{band_data['C_CODE']},{band_data['D_CODE']}], UVMIN={band_data['UVMIN_KLAMBDA']}, UVMAX={band_data['UVMAX_KLAMBDA']}")
 
     # Create XML structure
     root = ET.Element("calibrator")
@@ -237,9 +269,13 @@ def scrape_and_export_xml(url, xml_file="vla_calibrators_from_web_fixed.xml"):
         print(f"{i+1}. {name_text}: {len(bands)} bands")
         for band in bands[:3]:  # Show first 3 bands
             band_name = band.find('BAND').text if band.find('BAND') is not None else ""
+            a_code = band.find('A_CODE').text if band.find('A_CODE') is not None else ""
+            b_code = band.find('B_CODE').text if band.find('B_CODE') is not None else ""
+            c_code = band.find('C_CODE').text if band.find('C_CODE') is not None else ""
+            d_code = band.find('D_CODE').text if band.find('D_CODE') is not None else ""
             uvmin = band.find('UVMIN_KLAMBDA').text if band.find('UVMIN_KLAMBDA') is not None else ""
             uvmax = band.find('UVMAX_KLAMBDA').text if band.find('UVMAX_KLAMBDA') is not None else ""
-            print(f"   {band_name}: UVMIN={uvmin}, UVMAX={uvmax}")
+            print(f"   {band_name}: Codes=[{a_code},{b_code},{c_code},{d_code}] UVMIN={uvmin}, UVMAX={uvmax}")
 
 if __name__ == "__main__":
     scrape_and_export_xml("https://science.nrao.edu/facilities/vla/observing/callist")
