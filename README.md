@@ -42,7 +42,7 @@ python scrapper.py
 This downloads the calibrator list from the NRAO and saves it as an XML file.
 Query the XML database
 
-python query.py
+python query.py <XML_file_name>
 
 Simple menu interface to look up calibrators by name or frequency band.
 ## Data Structure
